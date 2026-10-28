@@ -13,6 +13,8 @@ import {
   Modal,
   Platform,
   Linking,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Svg, {
@@ -34,6 +36,8 @@ import {
   CheckCircle2,
   Truck,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   LogOut,
   X,
   ArrowUpRight,
@@ -72,6 +76,7 @@ export interface ParsedAddress {
   orderNote?: string;
   shippingMethod?: string;
   shippingFee?: string;
+  voucherTag?: string;
 }
 
 export function parseOrderShippingAddress(rawAddress?: string, fallbackNotes?: string): ParsedAddress {
@@ -83,21 +88,38 @@ export function parseOrderShippingAddress(rawAddress?: string, fallbackNotes?: s
   let orderNote = fallbackNotes || '';
   let shippingMethod = '';
   let shippingFee = '';
+  let voucherTag = '';
 
   // 1. Bóc tách [CỌC COD: ...]
   text = text.replace(/\[CỌC COD:\s*[^\]]+\]/gi, '');
 
-  // 2. Bóc tách [DEAL: ...]
-  text = text.replace(/\[DEAL:\s*[^\]]+\]/gi, '');
+  // 2. Bóc tách [VOUCHER: ...] hoặc [DEAL: ...] hoặc [HỘI VIÊN: ...]
+  const voucherMatch = text.match(/\[VOUCHER:\s*([^\]]+)\]/i);
+  if (voucherMatch) {
+    voucherTag = voucherMatch[1].trim();
+    text = text.replace(voucherMatch[0], '');
+  }
+
+  const dealMatch = text.match(/\[DEAL:\s*([^\]]+)\]/i);
+  if (dealMatch) {
+    voucherTag = (voucherTag ? `${voucherTag} • ` : '') + dealMatch[1].trim();
+    text = text.replace(dealMatch[0], '');
+  }
+
+  const memberMatch = text.match(/\[HỘI VIÊN:\s*([^\]]+)\]/i);
+  if (memberMatch) {
+    voucherTag = (voucherTag ? `${voucherTag} • ` : '') + memberMatch[1].trim();
+    text = text.replace(memberMatch[0], '');
+  }
 
   // 3. Bóc tách [VẬN CHUYỂN: ...]
   const shippingMatch = text.match(/\[VẬN CHUYỂN:\s*([^\]]+)\]/i);
   if (shippingMatch) {
     const rawShip = shippingMatch[1].trim();
-    const feeMatch = rawShip.match(/\(([^)]+)\)$/);
+    const feeMatch = rawShip.match(/[-–]\s*(?:Phí|Cước):\s*([^\)]+?)(?=\s*[-–]|$)/i) || rawShip.match(/\((?:Phí\s*)?([0-9.,kK₫đ\s]+)\)$/i);
     if (feeMatch) {
       shippingFee = feeMatch[1].trim();
-      shippingMethod = rawShip.replace(/\(([^)]+)\)$/, '').trim();
+      shippingMethod = rawShip.replace(/[-–]\s*(?:Phí|Cước):\s*[^\)]+/i, '').replace(/\((?:Phí\s*)?[0-9.,kK₫đ\s]+\)$/i, '').trim();
     } else {
       shippingMethod = rawShip;
     }
@@ -118,11 +140,24 @@ export function parseOrderShippingAddress(rawAddress?: string, fallbackNotes?: s
     .replace(/\s*-\s*-\s*/g, ' - ')
     .trim();
 
+  // 6. Fallback thông minh nếu không có thẻ vận chuyển
+  if (!shippingMethod) {
+    const isHcm = /hồ chí minh|tp\.hcm|tphcm|tp hcm|sài gòn|bình thạnh|gò vấp|tân bình|phú nhuận|quận\s*[1-9]|q\.[1-9]/i.test(cleanAddress);
+    if (isHcm) {
+      shippingMethod = "Shipper riêng DE'GENT (Ship trong ngày)";
+      shippingFee = shippingFee || '40.000 ₫';
+    } else {
+      shippingMethod = "Giao hàng tiêu chuẩn toàn quốc (Viettel Post)";
+      shippingFee = shippingFee || '30.000 ₫';
+    }
+  }
+
   return {
     cleanAddress: cleanAddress || 'Chưa có thông tin địa chỉ',
     orderNote: orderNote || undefined,
     shippingMethod: shippingMethod || undefined,
     shippingFee: shippingFee || undefined,
+    voucherTag: voucherTag || undefined,
   };
 }
 
@@ -151,6 +186,92 @@ export const HomeScreen: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [orderDetailModalVisible, setOrderDetailModalVisible] = useState(false);
   const [isFetchingDetail, setIsFetchingDetail] = useState(false);
+  const [isCustomerInfoCollapsed, setIsCustomerInfoCollapsed] = useState(false);
+
+  // Vuốt xuống để đóng Bottom Sheet Order Detail
+  const orderSheetPanY = useRef(new Animated.Value(0)).current;
+  const isOrderDetailScrollAtTop = useRef(true);
+
+  const closeOrderDetailWithSlide = () => {
+    Animated.timing(orderSheetPanY, {
+      toValue: SCREEN_HEIGHT,
+      duration: 220,
+      useNativeDriver: true,
+    }).start(() => {
+      setOrderDetailModalVisible(false);
+      orderSheetPanY.setValue(0);
+      isOrderDetailScrollAtTop.current = true;
+    });
+  };
+
+  useEffect(() => {
+    if (orderDetailModalVisible) {
+      orderSheetPanY.setValue(SCREEN_HEIGHT * 0.4);
+      Animated.spring(orderSheetPanY, {
+        toValue: 0,
+        damping: 22,
+        stiffness: 220,
+        useNativeDriver: true,
+      }).start();
+      isOrderDetailScrollAtTop.current = true;
+    }
+  }, [orderDetailModalVisible]);
+
+  // PanResponder trên toàn bộ sheet khi cuộn lên đỉnh
+  const orderDetailPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return (
+          isOrderDetailScrollAtTop.current &&
+          gestureState.dy > 8 &&
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5
+        );
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          orderSheetPanY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 90 || gestureState.vy > 0.45) {
+          closeOrderDetailWithSlide();
+        } else {
+          Animated.spring(orderSheetPanY, {
+            toValue: 0,
+            bounciness: 4,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // Header PanResponder: Rất nhạy khi kéo xuống ở thanh handle hoặc header
+  const headerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          orderSheetPanY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 70 || gestureState.vy > 0.4) {
+          closeOrderDetailWithSlide();
+        } else {
+          Animated.spring(orderSheetPanY, {
+            toValue: 0,
+            bounciness: 4,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   // Copy Feedback state
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -171,6 +292,63 @@ export const HomeScreen: React.FC = () => {
   const parsedSelectedAddress = useMemo(() => {
     return parseOrderShippingAddress(selectedOrder?.shipping_address, selectedOrder?.notes);
   }, [selectedOrder]);
+
+  const [isConfirmingDelivered, setIsConfirmingDelivered] = useState(false);
+
+  const handleConfirmDeliveredOrder = async (order: any) => {
+    if (!order?.id) return;
+    if (order.fulfillment_status === 'DELIVERED') return;
+
+    Alert.alert(
+      'Xác nhận nhận hàng',
+      `Xác nhận khách hàng ${order.customer_name || ''} đã nhận được đơn hàng #${order.order_code}?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Khách đã nhận',
+          onPress: async () => {
+            setIsConfirmingDelivered(true);
+            try {
+              const res = await fetch(`${serverUrl}/api/orders`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  action: 'CONFIRM_DELIVERY',
+                  order_id: order.id,
+                  is_admin: true,
+                }),
+              });
+              const data = await res.json();
+              if (data.success) {
+                setOrders((prev) =>
+                  prev.map((o) =>
+                    o.id === order.id
+                      ? { ...o, fulfillment_status: 'DELIVERED', payment_status: 'PAID' }
+                      : o
+                  )
+                );
+                setSelectedOrder((prev: any) => ({
+                  ...prev,
+                  fulfillment_status: 'DELIVERED',
+                  payment_status: 'PAID',
+                }));
+                Alert.alert('Thành công', 'Đã cập nhật trạng thái đơn hàng thành Đã nhận!');
+              } else {
+                Alert.alert('Lỗi', data.message || 'Không thể xác nhận.');
+              }
+            } catch (err: any) {
+              Alert.alert('Lỗi kết nối', err.message);
+            } finally {
+              setIsConfirmingDelivered(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // -------------------------------------------------------------
   // FETCH DATA & REAL-TIME POLLING
@@ -528,7 +706,7 @@ export const HomeScreen: React.FC = () => {
               <Bell size={16} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.newOrderBannerTitle}>🔔 Có đơn hàng mới từ Web!</Text>
+              <Text style={styles.newOrderBannerTitle}>Có đơn hàng mới từ Web!</Text>
               <Text style={styles.newOrderBannerSub} numberOfLines={1}>
                 #{newOrderNotice.orderId} • {newOrderNotice.customerName || 'Khách mới'} • {formatCurrency(newOrderNotice.amount || 0)}
               </Text>
@@ -1320,51 +1498,74 @@ export const HomeScreen: React.FC = () => {
       <Modal
         visible={orderDetailModalVisible}
         transparent
-        animationType="slide"
-        onRequestClose={() => setOrderDetailModalVisible(false)}
+        animationType="fade"
+        onRequestClose={closeOrderDetailWithSlide}
       >
         <View style={styles.orderDetailModalOverlay}>
-          <View style={styles.orderDetailModalSheet}>
-            {/* Modal Top Handle & Header */}
-            <View style={styles.modalSheetHandle} />
+          {/* Chạm vào nền tối bên ngoài để trượt xuống và đóng modal */}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={closeOrderDetailWithSlide}
+          />
 
-            <View style={styles.orderDetailHeader}>
-              <View style={{ flex: 1 }}>
-                <View style={styles.orderDetailTitleRow}>
-                  <Text style={styles.orderDetailTitle}>
-                    Đơn hàng #{selectedOrder?.id?.substring(0, 8) || 'CHI TIẾT'}
-                  </Text>
-                  <View
-                    style={[
-                      styles.orderStatusBadge,
-                      selectedOrder?.status === 'COMPLETED'
-                        ? styles.statusSuccess
-                        : styles.statusPending,
-                    ]}
-                  >
-                    <Text style={styles.orderStatusBadgeText}>
-                      {selectedOrder?.status === 'COMPLETED' ? 'Hoàn thành' : 'Chờ xử lý'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.orderDetailTime}>
-                  Đặt lúc: {selectedOrder?.created_at
-                    ? new Date(selectedOrder.created_at).toLocaleString('vi-VN')
-                    : 'Hôm nay'}
-                </Text>
+          <Animated.View
+            {...orderDetailPanResponder.panHandlers}
+            style={[
+              styles.orderDetailModalSheet,
+              { transform: [{ translateY: orderSheetPanY }] },
+            ]}
+          >
+            {/* Modal Top Handle & Header - Vuốt xuống để trượt xuống và đóng */}
+            <View {...headerPanResponder.panHandlers} style={styles.modalSheetDraggableHeader}>
+              <View style={styles.modalSheetHandleContainer}>
+                <View style={styles.modalSheetHandle} />
               </View>
 
-              <TouchableOpacity
-                style={styles.modalCloseCircle}
-                onPress={() => setOrderDetailModalVisible(false)}
-              >
-                <X size={20} color="#64748B" />
-              </TouchableOpacity>
+              <View style={styles.orderDetailHeader}>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.orderDetailTitleRow}>
+                    <Text style={styles.orderDetailTitle}>
+                      Đơn hàng #{selectedOrder?.id?.substring(0, 8) || 'CHI TIẾT'}
+                    </Text>
+                    <View
+                      style={[
+                        styles.orderStatusBadge,
+                        selectedOrder?.status === 'COMPLETED'
+                          ? styles.statusSuccess
+                          : styles.statusPending,
+                      ]}
+                    >
+                      <Text style={styles.orderStatusBadgeText}>
+                        {selectedOrder?.status === 'COMPLETED' ? 'Hoàn thành' : 'Chờ xử lý'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.orderDetailTime}>
+                    Đặt lúc: {selectedOrder?.created_at
+                      ? new Date(selectedOrder.created_at).toLocaleString('vi-VN')
+                      : 'Hôm nay'}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.modalCloseCircle}
+                  onPress={closeOrderDetailWithSlide}
+                >
+                  <X size={20} color="#64748B" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <ScrollView
               style={styles.orderDetailScroll}
               showsVerticalScrollIndicator={false}
+              bounces={false}
+              overScrollMode="never"
+              onScroll={(e) => {
+                isOrderDetailScrollAtTop.current = e.nativeEvent.contentOffset.y <= 0;
+              }}
+              scrollEventThrottle={16}
             >
               {/* NÚT SAO CHÉP TOÀN BỘ ĐỂ TẠO VIETTEL POST (1 CHẠM) */}
               <TouchableOpacity
@@ -1396,7 +1597,40 @@ export const HomeScreen: React.FC = () => {
               <View style={styles.detailSectionBox}>
                 <View style={styles.detailSectionHeader}>
                   <Text style={styles.detailSectionTitle}>Thông tin người nhận hàng</Text>
+                  <TouchableOpacity
+                    style={styles.collapseHeaderBtn}
+                    onPress={() => setIsCustomerInfoCollapsed(!isCustomerInfoCollapsed)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.collapseHeaderBtnText}>
+                      {isCustomerInfoCollapsed ? 'Mở rộng' : 'Thu gọn'}
+                    </Text>
+                    {isCustomerInfoCollapsed ? (
+                      <ChevronDown size={14} color="#475569" />
+                    ) : (
+                      <ChevronUp size={14} color="#475569" />
+                    )}
+                  </TouchableOpacity>
                 </View>
+
+                {isCustomerInfoCollapsed ? (
+                  <TouchableOpacity
+                    style={styles.collapsedPreviewBox}
+                    onPress={() => setIsCustomerInfoCollapsed(false)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.collapsedPreviewName} numberOfLines={1}>
+                        {selectedOrder?.customer_name || 'Khách vãng lai'} • {selectedOrder?.customer_phone || 'Chưa có SĐT'}
+                      </Text>
+                      <Text style={styles.collapsedPreviewAddress} numberOfLines={1}>
+                        {parsedSelectedAddress.cleanAddress}
+                      </Text>
+                    </View>
+                    <Text style={styles.collapsedPreviewHint}>Chạm mở rộng</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <>
 
                 {/* Họ tên khách hàng */}
                 <View style={styles.fieldRow}>
@@ -1573,6 +1807,42 @@ export const HomeScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
 
+                {/* 3.1 Voucher / Khuyến mãi áp dụng */}
+                {parsedSelectedAddress.voucherTag ? (
+                  <View style={styles.fieldRow}>
+                    <View style={styles.fieldInfo}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Sparkles size={13} color="#16A34A" />
+                        <Text style={styles.fieldLabel}>Voucher / Khuyến mãi áp dụng</Text>
+                      </View>
+                      <Text style={[styles.fieldValueBold, { color: '#15803D', fontSize: 13 }]}>
+                        {parsedSelectedAddress.voucherTag}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.copyMiniBtn,
+                        copiedField === 'voucher_tag' && styles.copyMiniBtnActive,
+                      ]}
+                      onPress={() =>
+                        copyToClipboard(parsedSelectedAddress.voucherTag || '', 'voucher_tag')
+                      }
+                    >
+                      {copiedField === 'voucher_tag' ? (
+                        <>
+                          <Check size={14} color="#15803D" />
+                          <Text style={styles.copyMiniBtnTextActive}>Đã chép</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={14} color="#2563EB" />
+                          <Text style={styles.copyMiniBtnText}>Copy ưu đãi</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+
                 {/* 4. Ghi chú giao hàng cho shipper (nếu có) */}
                 {parsedSelectedAddress.orderNote ? (
                   <View style={styles.fieldRow}>
@@ -1642,7 +1912,9 @@ export const HomeScreen: React.FC = () => {
                     )}
                   </TouchableOpacity>
                 </View>
-              </View>
+              </>
+            )}
+          </View>
 
               {/* SẢN PHẨM TRONG ĐƠN */}
               <View style={styles.detailSectionBox}>
@@ -1717,11 +1989,35 @@ export const HomeScreen: React.FC = () => {
                     <Text style={styles.orderNotesText}>{selectedOrder.notes}</Text>
                   </View>
                 ) : null}
+
+                {/* Nút Khách đã nhận hàng */}
+                <View style={{ marginTop: 14 }}>
+                  {selectedOrder?.fulfillment_status === 'DELIVERED' ? (
+                    <View style={styles.deliveredSuccessBadge}>
+                      <CheckCircle2 size={18} color="#15803D" />
+                      <Text style={styles.deliveredSuccessBadgeText}>Khách đã nhận hàng thành công</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmDeliveredBtn,
+                        isConfirmingDelivered && { opacity: 0.6 },
+                      ]}
+                      onPress={() => handleConfirmDeliveredOrder(selectedOrder)}
+                      disabled={isConfirmingDelivered}
+                    >
+                      <CheckCircle2 size={18} color="#FFFFFF" />
+                      <Text style={styles.confirmDeliveredBtnText}>
+                        {isConfirmingDelivered ? 'Đang cập nhật...' : 'Khách đã nhận hàng'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
               <View style={{ height: 30 }} />
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -2607,16 +2903,27 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: SCREEN_HEIGHT * 0.88,
-    paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    overflow: 'hidden',
+  },
+  modalSheetDraggableHeader: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  modalSheetHandleContainer: {
+    paddingTop: 10,
+    paddingBottom: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
   modalSheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
+    width: 44,
+    height: 4.5,
+    borderRadius: 3,
     backgroundColor: '#CBD5E1',
     alignSelf: 'center',
-    marginBottom: 8,
   },
   orderDetailHeader: {
     flexDirection: 'row',
@@ -2726,9 +3033,84 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
-  detailSectionHint: {
+  confirmDeliveredBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#16A34A',
+    paddingVertical: 14,
+    borderRadius: 12,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  confirmDeliveredBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  deliveredSuccessBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#DCFCE7',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  deliveredSuccessBadgeText: {
+    color: '#15803D',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  collapseHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  collapseHeaderBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  collapsedPreviewBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 2,
+    gap: 10,
+  },
+  collapsedPreviewName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  collapsedPreviewAddress: {
     fontSize: 11,
     color: '#64748B',
+    marginTop: 2,
+  },
+  collapsedPreviewHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563EB',
   },
 
   // Field Rows with Copy Buttons
