@@ -14,6 +14,8 @@ interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
+  isInitialLoading: boolean;
+  isLoggingIn: boolean;
   serverUrl: string;
   updateServerUrl: (url: string) => Promise<void>;
   login: (identifier: string, password: string) => Promise<{ success: boolean; message?: string }>;
@@ -24,6 +26,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   token: null,
   isLoading: true,
+  isInitialLoading: true,
+  isLoggingIn: false,
   serverUrl: '',
   updateServerUrl: async () => {},
   login: async () => ({ success: false }),
@@ -33,7 +37,8 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [serverUrl, setServerUrl] = useState<string>('');
 
   // Khôi phục session khi mở app
@@ -67,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err) {
         console.error('Lỗi khôi phục session:', err);
       } finally {
-        setIsLoading(false);
+        setIsInitialLoading(false);
       }
     }
 
@@ -80,7 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (identifier: string, password: string): Promise<{ success: boolean; message?: string }> => {
-    setIsLoading(true);
+    setIsLoggingIn(true);
     try {
       const res = await apiLogin(identifier, password);
       if (res.success && res.user && res.token) {
@@ -99,18 +104,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         message: err.message || 'Có lỗi xảy ra trong quá trình đăng nhập.',
       };
     } finally {
-      setIsLoading(false);
+      setIsLoggingIn(false);
     }
   };
 
   const logout = async () => {
-    setIsLoading(true);
+    setIsInitialLoading(true);
     try {
       await clearStoredAuth();
       setUser(null);
       setToken(null);
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
     }
   };
 
@@ -119,7 +124,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         token,
-        isLoading,
+        isLoading: isInitialLoading,
+        isInitialLoading,
+        isLoggingIn,
         serverUrl,
         updateServerUrl,
         login,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,37 +11,83 @@ import {
   ScrollView,
   Modal,
   Alert,
+  Dimensions,
+  StatusBar as RNStatusBar,
+  Keyboard,
+  Animated,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import Svg, { Path, Rect, Circle, G } from 'react-native-svg';
+import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
+import {
+  useFonts,
+  Archivo_500Medium,
+  Archivo_600SemiBold,
+  Archivo_700Bold,
+} from '@expo-google-fonts/archivo';
 import { useAuth } from '../context/AuthContext';
-import { colors, typography } from '../theme/colors';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const HEADER_HEIGHT = SCREEN_HEIGHT * 0.36;
 
 export const LoginScreen: React.FC = () => {
-  const { login, isLoading, serverUrl, updateServerUrl } = useAuth();
+  const { login, isLoggingIn, serverUrl, updateServerUrl } = useAuth();
 
-  const [identifier, setIdentifier] = useState('0901234567'); // Default admin account
+  const [fontsLoaded] = useFonts({
+    Archivo_500Medium,
+    Archivo_600SemiBold,
+    Archivo_700Bold,
+  });
+
+  const [identifier, setIdentifier] = useState('0901234567');
   const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasError, setHasError] = useState(false);
+
+  // Hiệu ứng rung nhẹ khi nhập sai
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 6, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -6, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
 
   // Modal cấu hình Server URL
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [tempServerUrl, setTempServerUrl] = useState(serverUrl);
 
+  const clearError = () => {
+    if (hasError) setHasError(false);
+    if (errorMessage) setErrorMessage(null);
+  };
+
   const handleLogin = async () => {
-    setErrorMessage(null);
+    Keyboard.dismiss();
+    clearError();
 
     if (!identifier.trim()) {
-      setErrorMessage('Vui lòng nhập số điện thoại hoặc email.');
+      setHasError(true);
+      setErrorMessage('Vui lòng nhập email hoặc số điện thoại.');
+      triggerShake();
       return;
     }
     if (!password) {
+      setHasError(true);
       setErrorMessage('Vui lòng nhập mật khẩu.');
+      triggerShake();
       return;
     }
 
     const res = await login(identifier, password);
     if (!res.success) {
-      setErrorMessage(res.message || 'Đăng nhập không thành công.');
+      setHasError(true);
+      setErrorMessage(res.message || 'Số điện thoại/Email hoặc mật khẩu không chính xác.');
+      triggerShake();
     }
   };
 
@@ -63,7 +109,7 @@ export const LoginScreen: React.FC = () => {
     }
     await updateServerUrl(tempServerUrl.trim());
     setIsConfigOpen(false);
-    Alert.alert('Thành công', 'Đã lưu cấu hình địa chỉ máy chủ!');
+    Alert.alert('Thành công', 'Đã lưu cấu hình máy chủ!');
   };
 
   return (
@@ -71,139 +117,187 @@ export const LoginScreen: React.FC = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Brand Header */}
-        <View style={styles.brandContainer}>
-          <View style={styles.logoBadge}>
-            <Text style={styles.logoBadgeText}>C</Text>
-          </View>
-          <Text style={styles.brandTitle}>CAISHOP</Text>
-          <Text style={styles.brandBadge}>EXECUTIVE MOBILE</Text>
-          <Text style={styles.brandSubtitle}>
-            Hệ thống quản lý đơn hàng & danh mục sản phẩm
+      <StatusBar style="light" />
+
+      {/* TOP DARK HEADER WITH GEOMETRIC MOSAIC PATTERN */}
+      <View style={styles.headerContainer}>
+        {/* SVG Bauhaus / Geometric Mosaic Pattern */}
+        <Svg
+          width={SCREEN_WIDTH}
+          height={HEADER_HEIGHT + 40}
+          viewBox={`0 0 ${SCREEN_WIDTH} ${HEADER_HEIGHT + 40}`}
+          style={StyleSheet.absoluteFill}
+        >
+          {/* Base Dark Background */}
+          <Rect width={SCREEN_WIDTH} height={HEADER_HEIGHT + 40} fill="#0d0d0d" />
+
+          {/* Geometric Shapes Grid Layer */}
+          <G fill="#181818">
+            {/* Top row */}
+            <Path d="M 0 0 A 70 70 0 0 1 70 70 L 0 70 Z" fill="#161616" />
+            <Rect x={70} y={0} width={60} height={60} fill="#141414" />
+            <Path d="M 190 0 A 60 60 0 0 1 130 60 L 190 60 Z" fill="#1b1b1b" />
+            <Circle cx={250} cy={35} r={32} fill="#151515" />
+            <Path d="M 310 0 L 370 60 L 310 60 Z" fill="#191919" />
+            <Path d={`M ${SCREEN_WIDTH - 60} 0 A 60 60 0 0 1 ${SCREEN_WIDTH} 60 L ${SCREEN_WIDTH} 0 Z`} fill="#171717" />
+
+            {/* Mid row */}
+            <Rect x={0} y={70} width={65} height={65} fill="#141414" />
+            <Path d="M 65 70 A 65 65 0 0 1 0 135 Z" fill="#1a1a1a" />
+            <Circle cx={100} cy={110} r={28} fill="#171717" />
+            <Path d="M 280 70 A 70 70 0 0 1 350 140 L 280 140 Z" fill="#161616" />
+            <Circle cx={SCREEN_WIDTH - 40} cy={115} r={35} fill="#1a1a1a" />
+
+            {/* Lower row */}
+            <Circle cx={40} cy={190} r={40} fill="#171717" />
+            <Path d="M 80 160 A 50 50 0 0 1 130 210 L 80 210 Z" fill="#151515" />
+            <Rect x={260} y={150} width={70} height={70} rx={35} fill="#181818" />
+            <Path d={`M ${SCREEN_WIDTH - 80} 150 A 80 80 0 0 1 ${SCREEN_WIDTH} 230 L ${SCREEN_WIDTH - 80} 230 Z`} fill="#151515" />
+          </G>
+        </Svg>
+
+        {/* Center Brand Wordmark: DE'GENT */}
+        <View style={styles.logoCardWrapper}>
+          <Text
+            style={[
+              styles.brandLogoText,
+              fontsLoaded && { fontFamily: 'Archivo_600SemiBold' },
+            ]}
+          >
+            DE'GENT
           </Text>
         </View>
 
-        {/* Form Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Đăng nhập quản trị</Text>
-          <Text style={styles.cardSubtitle}>
-            Nhập tài khoản chủ shop hoặc quản trị viên để tiếp tục.
-          </Text>
+        {/* Top Right Discreet Server Config Button */}
+        <TouchableOpacity
+          style={styles.gearButton}
+          onPress={() => {
+            setTempServerUrl(serverUrl);
+            setIsConfigOpen(true);
+          }}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.gearIcon}>⚙️</Text>
+        </TouchableOpacity>
+      </View>
 
-          {/* Error Banner */}
-          {errorMessage ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>⚠️ {errorMessage}</Text>
-            </View>
-          ) : null}
+      {/* WHITE CURVED BOTTOM SHEET */}
+      <View style={styles.contentSheet}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Heading */}
+          <Text style={styles.title}>Quản trị</Text>
 
-          {/* Identifier Input */}
-          <View style={styles.inputGroup}>
-            <Text style={typography.label}>Số điện thoại / Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0901234567 hoặc admin@caishop.vn"
-              placeholderTextColor={colors.textLight}
-              value={identifier}
-              onChangeText={(text) => {
-                setIdentifier(text);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              editable={!isLoading}
-            />
-          </View>
-
-          {/* Password Input */}
-          <View style={styles.inputGroup}>
-            <View style={styles.passwordHeader}>
-              <Text style={typography.label}>Mật khẩu</Text>
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={styles.toggleText}>
-                  {showPassword ? 'Ẩn' : 'Hiện'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.passwordWrapper}>
+          {/* Animated Inputs Container with Shake & Red error border */}
+          <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
+            {/* Email Card Input */}
+            <View style={[styles.inputCard, hasError && styles.inputCardError]}>
+              <Mail
+                size={18}
+                color={hasError ? '#ef4444' : '#8E8E93'}
+                strokeWidth={1.8}
+                style={styles.inputIcon}
+              />
               <TextInput
-                style={styles.passwordInput}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textLight}
+                style={styles.inputValue}
+                placeholder="Email Address"
+                placeholderTextColor={hasError ? '#f87171' : '#8E8E93'}
+                value={identifier}
+                onChangeText={(text) => {
+                  setIdentifier(text);
+                  clearError();
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                editable={!isLoggingIn}
+              />
+            </View>
+
+            {/* Password Card Input */}
+            <View style={[styles.inputCard, hasError && styles.inputCardError]}>
+              <Lock
+                size={18}
+                color={hasError ? '#ef4444' : '#8E8E93'}
+                strokeWidth={1.8}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                style={styles.inputValue}
+                placeholder="Password"
+                placeholderTextColor={hasError ? '#f87171' : '#8E8E93'}
                 value={password}
                 onChangeText={(text) => {
                   setPassword(text);
-                  if (errorMessage) setErrorMessage(null);
+                  clearError();
                 }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                editable={!isLoading}
+                editable={!isLoggingIn}
               />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeBtn}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                {showPassword ? (
+                  <EyeOff size={19} color={hasError ? '#ef4444' : '#8E8E93'} strokeWidth={1.8} />
+                ) : (
+                  <Eye size={19} color={hasError ? '#ef4444' : '#8E8E93'} strokeWidth={1.8} />
+                )}
+              </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Submit Button */}
+            {/* In-app Error Banner directly below inputs */}
+            {hasError && errorMessage ? (
+              <View style={styles.errorBox}>
+                <AlertCircle size={16} color="#dc2626" strokeWidth={2} style={styles.errorBoxIcon} />
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            ) : null}
+          </Animated.View>
+
+          {/* Solid Black Login Button */}
           <TouchableOpacity
-            style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+            style={[styles.loginBtn, isLoggingIn && styles.loginBtnDisabled]}
             onPress={handleLogin}
-            disabled={isLoading}
-            activeOpacity={0.85}
+            disabled={isLoggingIn}
+            activeOpacity={0.88}
           >
-            {isLoading ? (
-              <ActivityIndicator color={colors.textInverse} size="small" />
+            {isLoggingIn ? (
+              <ActivityIndicator color="#ffffff" size="small" />
             ) : (
-              <Text style={styles.primaryButtonText}>Đăng nhập vào hệ thống</Text>
+              <Text style={styles.loginBtnText}>Đăng nhập</Text>
             )}
           </TouchableOpacity>
 
-          {/* Quick Account Switcher Chips for convenient testing */}
+          {/* Quick Account Fill (Admin / Customer testing) */}
           <View style={styles.quickFillSection}>
-            <Text style={styles.quickFillLabel}>Tài khoản mẫu có sẵn:</Text>
-            <View style={styles.quickFillRow}>
+            <Text style={styles.quickFillTitle}>Tài khoản thử nghiệm nhanh:</Text>
+            <View style={styles.quickFillChips}>
               <TouchableOpacity
-                style={styles.chipButton}
+                style={styles.chip}
                 onPress={() => handleQuickFill('admin')}
               >
-                <Text style={styles.chipButtonText}>👑 Admin (0901234567)</Text>
+                <Text style={styles.chipText}>👑 Admin (0901234567)</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.chipButton}
+                style={styles.chip}
                 onPress={() => handleQuickFill('customer')}
               >
-                <Text style={styles.chipButtonText}>👤 User (0987654321)</Text>
+                <Text style={styles.chipText}>👤 User (0987654321)</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
 
-        {/* Server Config & Footer */}
-        <View style={styles.footerContainer}>
-          <TouchableOpacity
-            style={styles.configButton}
-            onPress={() => {
-              setTempServerUrl(serverUrl);
-              setIsConfigOpen(true);
-            }}
-          >
-            <Text style={styles.configButtonText}>
-              ⚙️ Máy chủ: <Text style={styles.configUrlText}>{serverUrl || 'Chưa thiết lập'}</Text>
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.copyrightText}>
-            CAISHOP Studio © 2026 • Quản trị tập trung
-          </Text>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
 
-      {/* Modal chỉnh sửa Server IP / URL */}
+      {/* Modal Cấu hình Server IP */}
       <Modal
         visible={isConfigOpen}
         animationType="slide"
@@ -214,15 +308,15 @@ export const LoginScreen: React.FC = () => {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Cấu hình địa chỉ máy chủ API</Text>
             <Text style={styles.modalDescription}>
-              Nhập IP hoặc URL của backend CAISHOP đang chạy (Ví dụ: khi test trên điện thoại thật thì dùng IP máy tính trong mạng WiFi).
+              Nhập IP hoặc URL của backend DE'GENT (khi cắm cáp USB dùng http://localhost:3000, hoặc IP WiFi nội bộ http://192.168.1.X:3000).
             </Text>
 
             <TextInput
               style={styles.modalInput}
               value={tempServerUrl}
               onChangeText={setTempServerUrl}
-              placeholder="http://192.168.1.2:3000"
-              placeholderTextColor={colors.textLight}
+              placeholder="http://localhost:3000"
+              placeholderTextColor="#9ca3af"
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -251,260 +345,232 @@ export const LoginScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#0d0d0d',
+  },
+  headerContainer: {
+    height: HEADER_HEIGHT,
+    backgroundColor: '#0d0d0d',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) : 40,
+  },
+  gearButton: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? (RNStatusBar.currentHeight || 24) + 12 : 52,
+    right: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  gearIcon: {
+    fontSize: 16,
+  },
+  logoCardWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -4,
+  },
+  brandLogoText: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '600',
+    letterSpacing: 8,
+    paddingLeft: 8,
+    textTransform: 'uppercase',
+  },
+  contentSheet: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 68,
+    borderTopRightRadius: 0,
+    marginTop: -26,
+    overflow: 'hidden',
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 36,
+    paddingHorizontal: 30,
+    paddingTop: 36,
+    paddingBottom: 28,
   },
-  brandContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  logoBadge: {
-    width: 54,
-    height: 54,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  logoBadgeText: {
-    color: '#ffffff',
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  brandTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.primary,
-    letterSpacing: 1,
-  },
-  brandBadge: {
-    marginTop: 4,
-    fontSize: 10,
+  title: {
+    fontSize: 32,
     fontWeight: '700',
-    color: colors.accent,
-    backgroundColor: colors.accentLight,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-    letterSpacing: 0.5,
-  },
-  brandSubtitle: {
-    fontSize: 13,
-    color: colors.textMuted,
+    color: '#111827',
     textAlign: 'center',
-    marginTop: 6,
-    maxWidth: 280,
-  },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 12,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#0f172a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  cardSubtitle: {
-    fontSize: 13,
-    color: colors.textMuted,
-    marginBottom: 18,
+    marginBottom: 32,
+    letterSpacing: -0.5,
   },
   errorBox: {
-    backgroundColor: colors.dangerLight,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fca5a5',
-    borderRadius: 6,
-    padding: 10,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 2,
     marginBottom: 16,
+  },
+  errorBoxIcon: {
+    marginRight: 8,
   },
   errorText: {
     color: '#b91c1c',
     fontSize: 13,
     lineHeight: 18,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  passwordHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  toggleText: {
-    fontSize: 12,
-    color: colors.accent,
     fontWeight: '600',
-    marginBottom: 6,
+    flex: 1,
   },
-  input: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  inputCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 56,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#f0f1f3',
+  },
+  inputCardError: {
+    borderColor: '#ef4444',
+    backgroundColor: '#fff5f5',
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  inputValue: {
+    flex: 1,
     fontSize: 15,
-    color: colors.text,
+    color: '#1f2937',
+    paddingVertical: 0,
+    fontWeight: '400',
   },
-  passwordWrapper: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
+  eyeBtn: {
+    paddingLeft: 8,
+    paddingVertical: 4,
   },
-  passwordInput: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: colors.text,
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingVertical: 14,
+  loginBtn: {
+    height: 56,
+    backgroundColor: '#0a0a0a',
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 6,
+    marginTop: 10,
+    marginBottom: 28,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 5,
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  loginBtnDisabled: {
+    opacity: 0.6,
   },
-  primaryButtonText: {
-    color: colors.textInverse,
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+  loginBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   quickFillSection: {
-    marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  quickFillLabel: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  quickFillRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  chipButton: {
-    backgroundColor: colors.surfaceSubtle,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipButtonText: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: '500',
-  },
-  footerContainer: {
-    marginTop: 24,
+    marginBottom: 24,
     alignItems: 'center',
   },
-  configButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceSubtle,
+  quickFillTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9ca3af',
     marginBottom: 8,
   },
-  configButtonText: {
+  quickFillChips: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  chip: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  chipText: {
     fontSize: 12,
-    color: colors.textMuted,
-  },
-  configUrlText: {
-    color: colors.accent,
     fontWeight: '600',
+    color: '#374151',
   },
-  copyrightText: {
-    fontSize: 11,
-    color: colors.textLight,
-  },
+
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
   },
   modalContent: {
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 22,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 380,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: colors.text,
-    marginBottom: 6,
+    color: '#111827',
+    marginBottom: 8,
   },
   modalDescription: {
     fontSize: 13,
-    color: colors.textMuted,
+    color: '#6b7280',
     lineHeight: 18,
     marginBottom: 16,
   },
   modalInput: {
+    backgroundColor: '#f9fafb',
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 14,
-    color: colors.text,
-    marginBottom: 18,
+    color: '#111827',
+    marginBottom: 20,
   },
   modalButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 10,
+    gap: 12,
   },
   modalBtn: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 10,
   },
   modalBtnCancel: {
-    backgroundColor: colors.surfaceSubtle,
+    backgroundColor: '#f3f4f6',
   },
   modalBtnCancelText: {
-    color: colors.textMuted,
+    fontSize: 14,
     fontWeight: '600',
-    fontSize: 13,
+    color: '#4b5563',
   },
   modalBtnSave: {
-    backgroundColor: colors.primary,
+    backgroundColor: '#111827',
   },
   modalBtnSaveText: {
-    color: '#ffffff',
+    fontSize: 14,
     fontWeight: '600',
-    fontSize: 13,
+    color: '#ffffff',
   },
 });
